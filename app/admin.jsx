@@ -1,13 +1,35 @@
 // Admin Paneli — şifreli, localStorage CRUD
-const ADMIN_PASS = 'asya2026';
+const ADMIN_PASS_HASH = '9f8b6708acf952fd3b70545ee10ba7d1fcd6bf05a4ad951815dba63c7e483bdc';
 const SESSION_KEY = 'asya_admin_session';
+const SESSION_TS_KEY = 'asya_admin_session_ts';
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 dakika
+
+async function hashPassword(pw) {
+  const enc = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function isSessionValid() {
+  if (sessionStorage.getItem(SESSION_KEY) !== '1') return false;
+  const ts = Number(sessionStorage.getItem(SESSION_TS_KEY) || 0);
+  return Date.now() - ts < SESSION_TIMEOUT_MS;
+}
 
 function AdminPage() {
   const [data, setData] = useStore();
-  const [authed, setAuthed] = React.useState(() => sessionStorage.getItem(SESSION_KEY) === '1');
+  const [authed, setAuthed] = React.useState(() => isSessionValid());
   const [tab, setTab] = React.useState('profile');
 
-  if (!authed) return <AdminLogin onOk={() => { sessionStorage.setItem(SESSION_KEY, '1'); setAuthed(true); }} />;
+  React.useEffect(() => {
+    if (!authed) return;
+    const id = setInterval(() => {
+      if (!isSessionValid()) { sessionStorage.removeItem(SESSION_KEY); setAuthed(false); }
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [authed]);
+
+  if (!authed) return <AdminLogin onOk={() => { sessionStorage.setItem(SESSION_KEY, '1'); sessionStorage.setItem(SESSION_TS_KEY, String(Date.now())); setAuthed(true); }} />;
 
   const tabs = [
     { id: 'profile', label: 'Profil' },
@@ -27,7 +49,7 @@ function AdminPage() {
         </div>
         <div className="admin-actions">
           <a href="#/" className="btn ghost">← Siteye dön</a>
-          <button className="btn ghost" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setAuthed(false); }}>Çıkış</button>
+          <button className="btn ghost" onClick={() => { sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_TS_KEY); setAuthed(false); }}>Çıkış</button>
         </div>
       </div>
 
@@ -51,10 +73,17 @@ function AdminPage() {
 function AdminLogin({ onOk }) {
   const [pw, setPw] = React.useState('');
   const [err, setErr] = React.useState('');
-  const submit = (e) => {
+  const [busy, setBusy] = React.useState(false);
+  const submit = async (e) => {
     e.preventDefault();
-    if (pw === ADMIN_PASS) onOk();
-    else { setErr('Şifre yanlış.'); setPw(''); }
+    setBusy(true);
+    try {
+      const hash = await hashPassword(pw);
+      if (hash === ADMIN_PASS_HASH) onOk();
+      else { setErr('Şifre yanlış.'); setPw(''); }
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <div className="page admin-login">
@@ -62,10 +91,9 @@ function AdminLogin({ onOk }) {
         <div className="ph-eyebrow"><span className="chip-dot"/> Yönetim</div>
         <h1 className="page-title small">Sadece Asya<em>'ya</em>.</h1>
         <p className="page-sub">İçerik düzenlemek için şifre gerekli.</p>
-        <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Şifre" autoFocus className="input"/>
+        <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Şifre" autoFocus className="input" disabled={busy}/>
         {err && <div className="form-err">{err}</div>}
-        <button className="btn primary" type="submit">Giriş yap</button>
-        <div className="login-hint">İpucu: ilk şifre <code>asya2026</code></div>
+        <button className="btn primary" type="submit" disabled={busy}>Giriş yap</button>
       </form>
     </div>
   );
@@ -227,12 +255,20 @@ function DataEditor({ data, setData }) {
   const importData = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 1_048_576) { alert('Dosya 1 MB\'dan büyük olamaz.'); e.target.value = ''; return; }
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result);
+        const required = ['profile', 'stats', 'works', 'achievements', 'posts'];
+        const missing = required.filter(k => !(k in parsed));
+        if (missing.length) { alert(`Geçersiz yedek dosyası: eksik alanlar — ${missing.join(', ')}`); return; }
+        if (!Array.isArray(parsed.works) || !Array.isArray(parsed.achievements) || !Array.isArray(parsed.posts)) {
+          alert('Geçersiz yedek dosyası: works, achievements ve posts dizi olmalı.'); return;
+        }
         if (confirm('Mevcut içerik bu yedekle değişecek. Emin misin?')) setData(parsed);
       } catch { alert('Geçersiz dosya.'); }
+      e.target.value = '';
     };
     reader.readAsText(file);
   };
