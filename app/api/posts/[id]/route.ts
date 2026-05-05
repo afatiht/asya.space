@@ -1,0 +1,23 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { updatePost, deletePost } from '@/lib/db';
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const body = await req.json();
+    const post = await updatePost(id, body);
+    return NextResponse.json(post);
+  } catch {
+    return NextResponse.json({ error: 'Güncelleme başarısız.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    await deletePost(id);
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: 'Silme başarısız.' }, { status: 500 });
+  }
+}
