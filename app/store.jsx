@@ -100,7 +100,9 @@ function useStore() {
 
 // id oluşturucu
 function uid(prefix = 'x') {
-  return prefix + '_' + Math.random().toString(36).slice(2, 8);
+  const arr = new Uint32Array(2);
+  crypto.getRandomValues(arr);
+  return prefix + '_' + arr[0].toString(36) + arr[1].toString(36).slice(0, 3);
 }
 
 // Tarihi Türkçe formatla
